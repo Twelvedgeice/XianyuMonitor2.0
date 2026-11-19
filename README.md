@@ -61,15 +61,39 @@ New-Item -ItemType Directory -Path logs -Force | Out-Null
 
 ## 2.0 对原版的体验改进
 
-原版已有网页管理、AI 和关键词判断、筛选、Bark 等渠道、定时调度和账号配置。下面对比本仓库基于的开源版本与 2.0 新增或扩展的体验。
+本节以本仓库采用的上游提交 `77f8d75` 为比较基线。原版已提供 Vue 管理页、FastAPI 接口、定时调度、AI / 关键词判断、SQLite 结果存储和 Bark 通道。2.0 主要扩展了搜索覆盖、浏览器会话管理、节点状态反馈和历史商品核验。[查看上游基线](https://github.com/Usagi-org/ai-goofish-monitor/tree/77f8d75869acd65f9dba72731b95c7c49ea67bdf)
 
-| 使用场景 | 原版已有能力 | 2.0 的改进 |
-| --- | --- | --- |
-| 用多个关键词找商品 | 单个搜索关键词可搭配关键词判断规则 | 日常监测会分别搜索任务关键词及规则中的词，合并结果并按商品去重。 |
-| 查看浏览器和账号状态 | 导入登录态、绑定账号，配置轮换与任务失败保护 | 任务页和账号页展示当前、备用及冷却节点。Windows 本机模式支持按账号复用专用浏览器会话，连续异常达到配置上限后将该节点转入冷却，有可用候选时切换。 |
-| 判断切换是否生效 | 查看运行日志与商品通知 | 本机节点异常、进入冷却时可发 Bark 通知，新节点首次成功完成一轮采集后可再发确认。 |
-| 看历史商品和价格 | 查看采集结果和市场价格趋势 | 手动核验历史商品详情，保留状态、核验时间和证据。支持本地查询、导出，以及人工确认售出和补录成交价。 |
-| 日常查看管理页 | Web 仪表盘、任务搜索和结果页 | 重做导航和首图，在首页切换「吃谷手账」与「工业蓝」，浏览器记住偏好。 |
+### 搜索采集与商品分析
+
+原版用任务搜索词获取商品，再用关键词规则判断是否推荐。2.0 在日常监测中把任务搜索词与规则词合并为有序、去重的搜索列表。采集器逐词搜索，按请求中的关键词匹配响应，再校验返回码和商品列表结构。这样可以区分「搜索有效、没有结果」和「本次搜索失败」。同一商品命中多个搜索词时，采集器按商品 ID 和链接去重。[新增搜索词与响应匹配逻辑](src/services/multi_keyword_search.py) · [新增搜索响应校验与上新时间过滤](src/services/new_listing_policy.py) · [修改采集主流程](src/scraper.py)
+
+解析器新增商品主图链接和原始发布时间戳。配置 `LOCAL_LIST_ONLY=true` 时，采集器用列表字段生成分析任务，记录实际命中的搜索词和价格参考，然后交给已有分发器执行判断、保存结果和推荐通知。日常监测因此可以在列表阶段完成，减少自动打开的详情页。[修改列表解析器](src/parsers.py) · [修改商品分析分发器](src/services/item_analysis_dispatcher.py)
+
+### 任务配置与执行状态
+
+2.0 修正了任务局部更新的语义。后端根据请求实际提交的字段更新账号配置，只编辑关键词或启停状态时会沿用已有账号绑定。运行时另增 `TaskSkipped` 表示因无可用账号等原因跳过本轮，命令行日志可分别呈现「跳过」「异常终止」和「正常完成，新增 0 件」。[修改任务模型](src/domain/models/task.py) · [修改任务接口](src/api/routes/tasks.py) · [新增跳过状态](src/services/task_outcome.py) · [修改任务入口](spider_v2.py)
+
+### 本地浏览器与节点可视化
+
+在原版账号登录态文件之上，2.0 增加按账号管理的持久浏览器配置。启用本地会话复用后，Chrome / Edge 验证和采集连接同一专用配置，Firefox 由该账号的常驻进程持有会话。维护人员可以单独处理某个账号的登录问题。[新增 Chrome / Edge 会话管理](src/services/shared_chrome.py) · [新增 Firefox 运行时](src/services/firefox_runtime.py) · [新增账号验证入口](verify-chrome.py)
+
+任务页和账号页通过 `GET /api/accounts/nodes` 读取节点概况。后端汇总本地登录态、浏览器映射、任务绑定和冷却截止时间，返回当前账号、可选账号及剩余冷却时间。面板刷新只读取本地状态；账号的实际搜索能力在执行任务时确认。[修改账号接口](src/api/routes/accounts.py) · [新增节点状态查询](src/services/account_nodes.py) · [新增节点面板](web-ui/src/components/AccountNodesCard.vue)
+
+### 故障处理与 Bark 通知
+
+启用本地账号轮换后，同一轮的搜索、筛选或超时异常共用该账号的总尝试次数。在设置页填写 2 表示首次执行加一次重试。达到上限后，后台在同一 SQLite 事务中登记旧节点的冷却截止时间、选择下一可用节点，并记录待确认的切换。新节点按任务原定计划执行。设置页可以独立调整尝试次数与冷却时长。[新增账号轮换服务](src/services/account_failover.py) · [修改设置接口](src/api/routes/settings.py) · [修改轮换设置面板](web-ui/src/components/settings/RotationSettingsPanel.vue)
+
+2.0 复用原版通知通道，区分「节点已切换」和「新节点已成功采集」。后者在新节点成功完成一轮后触发，即使该轮新增 0 件也可确认。后台收到 Bark 发送成功的结果后，按切换 ID 清除待确认记录；发送失败则保留记录，供下次成功采集时重发。[切换与发送确认逻辑](src/services/account_failover.py) · [轮换与通知测试](tests/unit/test_account_failover.py)
+
+### 历史商品售出核验
+
+原版结果页用于回看采集记录和价格趋势。2.0 增加了一条手动核验流程：网页通过 `POST /api/price-surveys/runs` 提交历史分类和件数上限，后端从已导入的历史商品中优先选取尚未核验或距上次核验最久的条目，固定本次商品清单。执行器逐件访问详情，在两件商品之间释放浏览器操作锁，让定时监测有机会先执行。[新增核验页面](web-ui/src/views/PriceSurveyView.vue) · [新增核验接口](src/api/routes/price_surveys.py) · [新增执行器](src/services/price_survey_runner.py) · [修改任务进程管理](src/services/process_service.py)
+
+每件商品单独保存核验时间、证据来源、状态和可见挂牌价。只有当前商品详情提供明确售出证据时才自动标记售出。下架、无法访问和证据不足各有对应状态，成交价由用户手动填写。中途取消后，已完成的记录仍可查询和导出。[新增详情判定](src/services/history_detail.py) · [新增 SQLite 核验存储](src/services/price_survey_store.py)
+
+### 管理界面与本机会话
+
+仪表盘重新组织任务指标、价格趋势和运行动态，增加「吃谷手账」与「工业蓝」首图切换。主题选择保存在浏览器本地，并同步到同站标签页。Windows 本机服务入口另外为受保护的 API 和 WebSocket 检查回环地址、请求来源及登录会话。[修改仪表盘](web-ui/src/views/DashboardView.vue) · [新增主题管理](web-ui/src/composables/useAppearance.ts) · [新增本地服务入口](local_server.py)
 
 ## 前后端分开维护的好处
 
