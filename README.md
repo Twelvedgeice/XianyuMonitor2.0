@@ -1,70 +1,100 @@
-# XianyuMonitor2.0
-在最广为人知的闲鱼监测推送开源插件基础上，进行了一些更改，包括可以配置网页版本地节点，以及将搜索关键词的前端网页与负责抓取维护的本地账号节点后端分开的功能。会持续更新
+# Xianyu Monitor 2.0
 
-本版包含本地账号节点管理、浏览器会话复用、Bark 推送、关键词监测、历史商品售出核验，以及可切换风格的管理页。浏览器启动诊断通过单独配置的本地子项目接入。
+[中文] ｜ [English（原版文档）](README_EN.md)
 
-原项目 [Usagi-org/ai-goofish-monitor](https://github.com/Usagi-org/ai-goofish-monitor)。
+Xianyu Monitor 2.0 在原开源版本之上增加了本机浏览器节点管理、多关键词监测、历史售出核验和两套管理页主题。你可以在网页里配置任务、查看结果和排查故障，由本地后端负责定时搜索、保存结果和发送通知。[原项目 Usagi-org/ai-goofish-monitor](https://github.com/Usagi-org/ai-goofish-monitor)
 
-# 闲鱼智能监控系统
+- [Windows 本地使用教程](#windows-本地使用教程)
+- [2.0 对原版的体验改进](#20-对原版的体验改进)
+- [前后端分开维护的好处](#前后端分开维护的好处)
 
-[中文] ｜ [English](README_EN.md)
+## Windows 本地使用教程
 
-基于 Playwright 和 AI 的闲鱼多任务实时监控，提供完整的 Web 管理界面。
+### 1. 下载并启动
 
+准备 Git、Python 3.12、Node.js 22 LTS（22.12 或更新，含 npm）和 Chrome。在 PowerShell 中运行：
 
-## 核心特性
-
-- **Web 可视化管理**: 任务管理、账号管理、AI 标准编辑、运行日志、结果浏览
-- **AI 驱动**: 自然语言创建任务，多模态模型深度分析商品
-- **多任务并发**: 独立配置关键词、价格、筛选条件和 AI Prompt
-- **高级筛选**: 包邮、新发布时间范围、省/市/区三级区域筛选
-- **即时通知**: 支持 ntfy.sh、企业微信、Bark、Telegram、Webhook等多渠道
-- **定时调度**: 支持 Cron 配置周期性任务
-- **账号与代理轮换**: 多账号管理、任务绑定账号、代理池轮换与失败重试
-- **Docker 部署**: 一键容器化部署
-
-## 截图
-
-![监控概览](static/img.png)
-![任务管理](static/img_1.png)
-![结果查看](static/img_2.png)
-![通知推送](static/img_3.png)
-
-## 🐳 Docker 部署（推荐）
-
-```bash
-git clone https://github.com/Usagi-org/ai-goofish-monitor && cd ai-goofish-monitor
-cp .env.example .env
-vim .env # 填写相关配置项
-docker compose up -d
-docker compose logs -f app
-docker compose down
+```powershell
+git clone https://github.com/Twelvedgeice/XianyuMonitor2.0.git
+Set-Location XianyuMonitor2.0
+Copy-Item .env.example .env
+py -3.12 -m venv .runtime-venv
+.\.runtime-venv\Scripts\python.exe -m pip install -r requirements-runtime.txt
+$env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $PWD '.browsers'
+.\.runtime-venv\Scripts\python.exe -m playwright install chromium
+npm --prefix web-ui ci
+npm --prefix web-ui run build
+New-Item -ItemType Directory -Path logs -Force | Out-Null
 ```
 
-如果镜像无法访问或下载速度慢，可尝试使用加速：
-```bash
+打开 `.env`，设置自己的 `WEB_USERNAME` 和 `WEB_PASSWORD`。只用关键词判断时，将 `OPENAI_API_KEY` 留空即可。要使用 AI 建任务或分析商品，再填写有效的 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和支持图片输入的 `OPENAI_MODEL_NAME`。
 
-docker pull ghcr.nju.edu.cn/usagi-org/ai-goofish:latest
-docker tag ghcr.nju.edu.cn/usagi-org/ai-goofish:latest ghcr.io/usagi-org/ai-goofish:latest
-docker compose up -d
+双击 `start-local.cmd` 启动服务，打开管理页并使用刚设置的管理账号登录。停止服务时双击 `stop-local.cmd`。遇到启动问题，查看 `logs/server.err.log`。[打开本地管理页](http://127.0.0.1:8765)
 
-```
+### 2. 添加闲鱼登录态
 
-- 默认 Web UI 地址：`http://127.0.0.1:8000`
-- Docker 镜像已内置 Chromium，无需宿主机额外安装浏览器。
-- 官方镜像地址：`ghcr.io/usagi-org/ai-goofish:latest`
-- 更新镜像：`docker compose pull && docker compose up -d`
-- 如果你修改了 `.env` 中的 `SERVER_PORT`，请同步更新 `docker-compose.yaml` 里的端口映射。
-- `docker-compose.yaml` 默认会把 SQLite 主库挂载到 `./data:/app/data`，数据库文件默认为 `data/app.sqlite3`
-- 目前默认持久化这些目录：
-    - `data/`  SQLite 主存储（任务、结果、价格历史）
-    - `state/`  登录状态 cookie 文件
-    - `prompts/`  任务提示词
-    - `logs/`  运行日志
-    - `images/`  商品图片与任务临时图片目录
-    - `config.json`、`jsonl/`、`price_history/`  首次升级到 SQLite 时用于兼容导入的旧数据源
+任选一种方式：
 
-### 数据存储与迁移
+- 双击 `login-local.cmd`，在弹出的 Chromium 中自行登录闲鱼。登录后回到命令窗口按 Enter，登录态会保存为 `state/personal.json`。
+- 在「账号管理」中导入已有的 Playwright 登录态 JSON。使用原项目配套扩展可以导出浏览器中的登录态。[Chrome 扩展](https://chromewebstore.google.com/detail/xianyu-login-state-extrac/eidlpfjiodpigmfcahkmlenhppfklcoa)
+
+闲鱼登录态会保存在本机 `state/`。管理页账号与闲鱼账号各有用途：前者登录本地管理页，后者授权本机浏览器搜索闲鱼。请妥善保管 `state/`、浏览器配置目录和 `.env`。
+
+### 3. 创建并试跑任务
+
+1. 打开「任务管理」，点击「创建新任务」。填写任务名和「搜索关键词」，按需设置价格、发布时间和地区。
+2. 选择「关键词判断」，在「关键词规则」里每行填一个词。命中任一规则即可推荐。搜索关键词可以填「机械键盘」，规则可以填「静音机械键盘」和「无线机械键盘」。日常监测会逐项搜索这些词，并按商品 ID 去重。规则宜写成你也希望单独搜索的词。
+3. 选择刚添加的闲鱼账号，先用「不定时（手动运行）」保存任务。点击任务的「启动」，在「运行日志」查看本轮是否完成，到「结果查看」核对收集到的商品。确认后再为任务设置定时规则。
+
+开启定时任务后，关闭管理页标签仍可继续监测。采集电脑和本地后端服务需要保持运行。
+
+### 4. 配置推送
+
+打开「系统设置」的通知配置。以 iOS 上的 Bark 为例，在 Bark App 中复制设备地址，填入「Bark URL」，点击「保存通知设置」，再点 Bark 卡片上的「测试」。收到测试推送后，再用已启用的任务确认实际商品通知。Bark 地址带有设备密钥，请保存在本机。
+
+### 5. 使用本地账号节点和历史核验
+
+- **本地账号节点**。需要在 Windows 上复用专用浏览器并管理多个账号时，在 `.env` 中设置 `LOCAL_SHARED_CHROME=true` 和 `LOCAL_ACCOUNT_FAILOVER=true`，然后重启服务。预先在「账号管理」中导入要使用的账号。从首次启用起，未指定浏览器的账号使用 Chrome。需要 Edge 或 Firefox 时，可在 `data/account-browsers.json` 按登录态文件名（去掉 `.json`）指定通道，例如 `{"personal":"chrome","backup":"edge"}`。选用 Firefox 时，再安装对应的 Playwright 运行时，执行 `.\.runtime-venv\Scripts\python.exe -m playwright install firefox`，并沿用上面的 `PLAYWRIGHT_BROWSERS_PATH`。任务页和账号页可查看当前、备用及冷却节点；在系统设置的轮换面板可调整总尝试次数和冷却时长。
+- **登录恢复**。需要给某个专用浏览器会话重新登录时，可以在 PowerShell 中运行 `.\verify-chrome.cmd --account personal`，将 `personal` 替换为已导入的账号名。在打开的标签页中手动完成验证，搜索看到商品后回到命令窗口按 Enter 保存。之后可在任务页试跑一轮。
+- **历史售出核验**。在「历史售出核验」选择已有采集记录的分类，设置本次最多核验件数，再点「核验历史商品售出状态」。后台逐件查看商品详情，有明确售出证据时标记为「已卖出」。下架或无法访问会单独记录，证据不足时显示「待确认」。成交价可手动补录，历史挂牌价单独显示。完成后可按条件查找和导出 JSON。
+
+## 2.0 对原版的体验改进
+
+原版已有网页管理、AI 和关键词判断、筛选、Bark 等渠道、定时调度和账号配置。下面对比本仓库基于的开源版本与 2.0 新增或扩展的体验。
+
+| 使用场景 | 原版已有能力 | 2.0 的改进 |
+| --- | --- | --- |
+| 用多个关键词找商品 | 单个搜索关键词可搭配关键词判断规则 | 日常监测会分别搜索任务关键词及规则中的词，合并结果并按商品去重。 |
+| 查看浏览器和账号状态 | 导入登录态、绑定账号，配置轮换与任务失败保护 | 任务页和账号页展示当前、备用及冷却节点。Windows 本机模式支持按账号复用专用浏览器会话，连续异常达到配置上限后将该节点转入冷却，有可用候选时切换。 |
+| 判断切换是否生效 | 查看运行日志与商品通知 | 本机节点异常、进入冷却时可发 Bark 通知，新节点首次成功完成一轮采集后可再发确认。 |
+| 看历史商品和价格 | 查看采集结果和市场价格趋势 | 手动核验历史商品详情，保留状态、核验时间和证据。支持本地查询、导出，以及人工确认售出和补录成交价。 |
+| 日常查看管理页 | Web 仪表盘、任务搜索和结果页 | 重做导航和首图，在首页切换「吃谷手账」与「工业蓝」，浏览器记住偏好。 |
+
+## 前后端分开维护的好处
+
+| 部分 | 主要负责 |
+| --- | --- |
+| 前端 `web-ui/`（Vue + Vite） | 展示仪表盘、任务表单、账号节点状态、采集结果和历史核验进度。 |
+| 本地后端 `src/`、`spider_v2.py`、`local_server.py`（FastAPI + Playwright） | 接收配置、按计划运行任务、维护浏览器会话、写入 SQLite、通过 API 提供结果并发送通知。 |
+
+- **页面改版更独立。** 调整主题、导航和任务表单时，API 契约保持兼容即可单独构建前端，采集逻辑和本地数据库可沿用。
+- **采集问题更易定位。** 页面显示的是后端记录的节点状态和任务结果。排查时可以分别查看网页请求、后端日志及浏览器会话，定位配置保存、定时执行或闲鱼页面验证环节的问题。
+- **后台任务可独立运行。** 管理页通过 HTTP 提交操作并通过 WebSocket 等方式读取状态。每轮搜索和通知由后台执行，查看进度的标签页可以随时关闭。
+- **运行数据集中在本机。** 登录态、专用浏览器配置、应用数据库和通知密钥由运行后端的电脑管理。Windows 本地入口在回环地址上提供管理页和接口，并校验本机会话。
+
+开发时可以分别启动 Vue 和 FastAPI，日常使用时由本机后端统一提供构建完成的管理页。查看模块和存储关系可参考 [本地工程图](PROJECT_MAP_README.md)。
+
+## 界面预览
+
+| 吃谷手账 | 工业蓝 |
+| --- | --- |
+| ![吃谷手账手机版](web-ui/ui-review/collector-journal/mobile.png) | ![工业蓝手机版](web-ui/ui-review/collector-journal/industrial-360.png) |
+
+## 原版 Docker 镜像
+
+仓库自带的 `docker-compose.yaml` 默认拉取上游镜像 `ghcr.io/usagi-org/ai-goofish:latest`。要体验此仓库的 2.0 管理界面和 Windows 本机节点，使用上方教程。原版容器用法参见 [上游部署文档](https://github.com/Usagi-org/ai-goofish-monitor)。
+
+## 数据存储与迁移
 
 - 当前在线主存储为 SQLite，默认路径 `data/app.sqlite3`
 - 可通过环境变量 `APP_DATABASE_FILE` 自定义数据库路径；Docker 默认设置为 `/app/data/app.sqlite3`
@@ -73,74 +103,18 @@ docker compose up -d
 - 商品图片会临时落到 `images/task_images_<task_name>/`，任务结束后默认会清理
 - 首次升级完成并确认 `data/app.sqlite3` 中数据正确后，可视部署方式决定是否继续保留旧的 `config.json`、`jsonl/`、`price_history/` 挂载
 
-### 最少配置
-
-| 变量 | 说明 | 必填 |
-|------|------|------|
-| `OPENAI_API_KEY` | AI 模型 API Key | 是 |
-| `OPENAI_BASE_URL` | OpenAI 兼容接口地址 | 是 |
-| `OPENAI_MODEL_NAME` | 支持图片输入的模型名称 | 是 |
-| `WEB_USERNAME` / `WEB_PASSWORD` | Web UI 登录账号密码，默认 `admin/admin123` | 否 |
-
-其余配置见下方“配置说明”。
-
-
-### 第一次使用
-
-1. 打开默认 Web UI `http://127.0.0.1:8000` 并登录。
-2. 进入“闲鱼账号管理”，使用 [Chrome 扩展](https://chromewebstore.google.com/detail/xianyu-login-state-extrac/eidlpfjiodpigmfcahkmlenhppfklcoa) 导出并粘贴闲鱼登录态 JSON。
-3. 登录态文件会保存到 `state/` 目录，例如 `state/acc_1.json`。
-4. 回到“任务管理”，创建任务并绑定账号后即可运行。
-
-### 创建第一个任务
-
-- `AI判断`：填写“详细需求”，提交后会弹出独立进度弹窗，后台异步生成分析标准。
-- `关键词判断`：填写关键词规则，任务会直接创建，不经过 AI 生成流程。
-- `区域筛选`：已改为省 / 市 / 区三级选择器，数据基于闲鱼页面抓取快照内置。
-
-
-
-## 用户使用说明
-
-<details>
-<summary>点击展开 Web UI 功能说明</summary>
-
-### 任务管理
-
-- 支持 AI 创建、关键词规则、价格范围、新发布范围、区域筛选、账号绑定、定时规则。
-- AI 任务创建是后台 job 流程，提交后会打开单独的进度弹窗。
-- 区域筛选会显著缩小结果集，默认留空。
-
-### 账号管理
-
-- 支持导入、更新、删除闲鱼账号登录态。
-- 每个任务可指定账号，也可不绑定并交给系统自动选择。
-
-### 结果查看与运行日志
-
-- 结果页和导出功能现在从 SQLite 查询，不再直接扫描 `jsonl` 文件。
-- 日志页按任务展示运行过程，便于排查登录态失效、风控和 AI 调用问题。
-
-### 系统设置
-
-- 可查看系统状态、编辑 Prompt、调整代理与轮换相关配置。
-
-</details>
-
-
-
-## 开发者开发
+## 开发与维护
 
 ### 环境要求
 
 - Python 3.10+
-- Node.js + npm（本地验证 `Node v20.18.3` 可完成前端构建）
+- Node.js 22 LTS（22.12 或更新，含 npm）
 - Playwright CLI 与 Chromium，首次运行前建议执行 `python3 -m pip install playwright && python3 -m playwright install chromium`
 - Chrome / Edge 浏览器（Linux 环境也可使用 Chromium；`start.sh` 会先检查浏览器是否存在）
 
 ```bash
-git clone https://github.com/Usagi-org/ai-goofish-monitor
-cd ai-goofish-monitor
+git clone https://github.com/Twelvedgeice/XianyuMonitor2.0.git
+cd XianyuMonitor2.0
 cp .env.example .env
 ```
 
@@ -171,7 +145,7 @@ npm run dev
 - `spider_v2.py` 默认从 SQLite 读取任务；只有显式传入 `--config <path>` 时才会走 JSON 配置兼容模式
 - 默认数据库路径为 `data/app.sqlite3`
 - Vite 开发服务器会将 `/api`、`/auth`、`/ws` 代理到 `http://127.0.0.1:8000`。
-- `npm run build` 先生成 `web-ui/dist/`，`start.sh` 再复制到仓库根目录 `dist/`。
+- 在 `web-ui/` 执行 `npm run build`，构建产物直接写入仓库根目录 `dist/`。
 - FastAPI 负责提供根目录 `dist/index.html` 和 `dist/assets/`。
 - `./start.sh` 默认输出访问地址 `http://localhost:8000` 和 API 文档 `http://localhost:8000/docs`。
 
@@ -202,7 +176,7 @@ cd web-ui && npm run build
 
 ### AI 与运行时
 
-- `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL_NAME`：AI 模型接入必填项。
+- `OPENAI_API_KEY` / `OPENAI_BASE_URL` / `OPENAI_MODEL_NAME` 为 AI 模式的接入配置。
 - `PROXY_URL`：为 AI 请求单独指定 HTTP/SOCKS5 代理。
 - `RUN_HEADLESS`：是否以无头模式运行爬虫；Docker 中应保持 `true`。
 - `SERVER_PORT`：后端监听端口，默认 `8000`。
@@ -240,7 +214,7 @@ cd web-ui && npm run build
 
 - Web UI 当前使用登录页收集账号密码，并通过 `POST /auth/status` 校验。
 - 登录成功后，前端会在浏览器本地保存登录状态，用于路由守卫和 WebSocket 初始化。
-- 默认账号密码为 `admin/admin123`，生产环境请务必修改。
+- Windows 本机入口额外检查回环地址及服务端会话。首次启动前请在 `.env` 中设置自己的管理账号和密码。
 
 </details>
 
@@ -254,9 +228,8 @@ graph TD
     B --> C[任务: 搜索商品];
     C --> D{发现新商品?};
     D -- 是 --> E[抓取商品详情 & 卖家信息];
-    E --> F[下载商品图片];
-    F --> G[调用AI进行分析];
-    G --> H{AI是否推荐?};
+    E --> G[按任务设置匹配关键词或调用 AI];
+    G --> H{商品是否符合通知条件?};
     H -- 是 --> I[发送通知];
     H -- 否 --> J[保存记录到 SQLite];
     I --> J;
@@ -283,7 +256,7 @@ AI 模式会先生成分析标准，再创建任务。现在该流程已改为�
 
 ### 本地页面打开后提示前端构建产物不存在？
 
-说明根目录 `dist/` 缺失。可直接执行 `./start.sh`，或先在 `web-ui/` 里执行 `npm run build`，再确认构建产物已复制到仓库根目录。
+确认从仓库根目录运行过 `npm --prefix web-ui ci` 和 `npm --prefix web-ui run build`。本地服务读取根目录下的 `dist/`。
 
 ### `./start.sh` 为什么提示缺少 Playwright 或浏览器？
 
